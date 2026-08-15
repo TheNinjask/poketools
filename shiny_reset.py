@@ -3,6 +3,7 @@ Automates resets for shiny hunting stationary Pokémon.
 """
 
 import os
+import importlib.util
 from utils import audio
 from utils.controller import Controller
 import argparse
@@ -10,7 +11,7 @@ from configs import general
 
 
 # Configuration variables
-REC_DURATION = 4  # Game sound recording duration [s]
+DEFAULT_REC_DURATION = 4  # Default game sound recording duration [s], overridable via --recording-duration
 
 # Template audio file
 script_directory = os.path.dirname(os.path.abspath(__file__))  # current directory
@@ -22,13 +23,29 @@ number_of_resets = 0
 
 if __name__ == "__main__":
 
+    # Console model (determines which scenarios/timings are available)
+    possible_models = sorted([
+        directory for directory in os.listdir(f"{script_directory}/configs")
+        if os.path.isdir(f"{script_directory}/configs/{directory}") and directory != "__pycache__"
+    ])
+    # Pre-parse just the model flag, since it determines the valid --scenario choices below
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("-m", "--model", choices=possible_models, default="switch")
+    pre_args, _ = pre_parser.parse_known_args()
+    scenarios_directory = f"{script_directory}/configs/{pre_args.model}"
+    possible_scenarios = [filename.split(".")[0][4:] for filename in os.listdir(scenarios_directory) if filename[0:4] == "cfg_"]
+
     # Command line arguments
     parser = argparse.ArgumentParser()
+    help = "Use this flag to specify what console model the macros and timings should be tuned for. " \
+           "This determines which scenarios are available (see --scenario)."
+    parser.add_argument("-m", "--model", help=help, choices=possible_models, default="switch")
     # Scenario (Pokemon we are trying to catch)
-    possible_scenarios = [filename.split(".")[0][4:] for filename in os.listdir(f"{script_directory}/configs") if filename[0:4] == "cfg_"]
-    help = "Use this flag to specify what scenario the macros and timings should be set for." \
+    help = f"Use this flag to specify what scenario the macros and timings should be set for " \
+           f"(available scenarios depend on --model; for '{pre_args.model}': {', '.join(possible_scenarios)}). " \
            "If the scenario you need is implemented, please contribute by adding it to the `configs` directory."
-    parser.add_argument("-s", "--scenario", help=help, choices=possible_scenarios, default="ramanas")
+    default_scenario = "ramanas" if "ramanas" in possible_scenarios else possible_scenarios[0]
+    parser.add_argument("-s", "--scenario", help=help, choices=possible_scenarios, default=default_scenario)
     # Capture screenshot or video when shiny is found
     help = "Capture a video or screenshot once a shiny is found."
     parser.add_argument("-c", "--capture", help=help, choices=["video", "screenshot"])
@@ -43,8 +60,19 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--plot-correlation", help=help, action="store_true")
     help = "Select an audio input device by its name. Audio devices can be listed with `python3 -m sounddevice`."
     parser.add_argument("-d", "--device", help=help)
+    help = "Run a fixed number of battle/recording iterations (default 1), even if no shiny is found, and save " \
+           "the audio recording used for each matching attempt. Useful for checking timings and listening to " \
+           "what the code hears."
+    parser.add_argument("-n", "--dry-run", help=help, type=int, nargs="?", const=1, default=None, metavar="CYCLES")
+    help = f"Override the game sound recording duration [s] (default: {DEFAULT_REC_DURATION})."
+    parser.add_argument("-r", "--recording-duration", help=help, type=float, default=DEFAULT_REC_DURATION)
     args = parser.parse_args()
-    config = getattr(__import__("configs", fromlist=[f"cfg_{args.scenario}"]), f"cfg_{args.scenario}")
+
+    # Load the scenario config from the selected console model's directory
+    config_path = f"{script_directory}/configs/{args.model}/cfg_{args.scenario}.py"
+    config_spec = importlib.util.spec_from_file_location(f"cfg_{args.scenario}", config_path)
+    config = importlib.util.module_from_spec(config_spec)
+    config_spec.loader.exec_module(config)
 
     # Force no user switch for Shaymin scenario
     if args.scenario == "shaymin":
@@ -59,7 +87,9 @@ if __name__ == "__main__":
     controller.sync_and_go_back()
 
     is_shiny = False
+    cycle = 0
     while not is_shiny:
+        cycle += 1
         # Initiate battle with Pokemon
         print(f"Initiating a battle.")
         controller.macro(config.START_BATTLE)
@@ -67,12 +97,13 @@ if __name__ == "__main__":
         # while using the controller to prevent it from disconnecting
         controller.busy_wait(config.BATTLE_LOADING_TIME)
         # Record game sound, and check if shiny sparkles are present
-        controller.busy_wait_background(REC_DURATION)
-        is_shiny, correlation = audio.record_and_check_shiny(SHINY_AUDIO_FILE, REC_DURATION)
+        controller.busy_wait_background(args.recording_duration)
+        dry_run_recording_path = f"{script_directory}/dry_run_recording_{cycle}.wav" if args.dry_run else None
+        is_shiny, correlation = audio.record_and_check_shiny(SHINY_AUDIO_FILE, args.recording_duration, dry_run_recording_path)
         if is_shiny:
             print(f"Shiny found after {number_of_resets} resets.")
             # Shiny ! Put console in sleep mode
-            if args.capture == "video": 
+            if args.capture == "video":
                 controller.macro(general.VIDEO)
                 controller.busy_wait_b(8)
             elif args.capture == "screenshot":
@@ -81,9 +112,15 @@ if __name__ == "__main__":
             if args.plot_correlation:
                 audio.save_plot(correlation, f"{script_directory}/correlation.png")
             exit(0)
+        elif args.dry_run and cycle >= args.dry_run:
+            print(f"Dry run complete after {cycle} cycle(s). No shiny found.")
+            exit(0)
         else:
             # Not shiny, reset game
             number_of_resets += 1
-            print(f"No shiny found. Reset n°{number_of_resets}.")
+            if args.dry_run:
+                print(f"Dry run cycle {cycle}/{args.dry_run} complete. No shiny found. Resetting for next cycle.")
+            else:
+                print(f"No shiny found. Reset n°{number_of_resets}.")
             controller.reset(config.RESET_GAME, int(args.user))
             controller.busy_wait(config.GAME_LOADING_TIME)

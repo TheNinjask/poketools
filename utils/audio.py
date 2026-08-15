@@ -4,6 +4,7 @@ Audio utilities to record and compare audio files.
 
 import os
 import stat
+import numpy as np
 import scipy.io.wavfile as wavfile
 import sounddevice as sd
 from scipy import signal
@@ -81,7 +82,7 @@ def record_and_save(duration, filename):
     """
     recording = sd.rec(int(duration * FREQ), samplerate=FREQ, channels=1)
     sd.wait()
-    wavfile.write(filename, FREQ, duration)
+    wavfile.write(filename, FREQ, recording)
 
 
 def save_plot(correlation, plot_file):
@@ -99,16 +100,20 @@ def save_plot(correlation, plot_file):
     plt.close(fig)
 
 
-def record_and_check_shiny(shiny_template_file, recording_duration):
+def record_and_check_shiny(shiny_template_file, recording_duration, save_recording_path=None):
     """
     record the sound from the game and tell if it is a shiny sound
     @param shiny_template_file: file where the sound for shiny pokemon is written
     @param recording_duration: duration for the recording
+    @param save_recording_path: if given, write the recorded audio used for matching to this file
     @return: True if the sound from the game contained a shiny pokemon
     """
     # Record game sound
     print("Recording game sound...")
     game_recording = record_game_sound(recording_duration)
+    if save_recording_path:
+        wavfile.write(save_recording_path, FREQ, np.array(game_recording))
+        print(f"Saved recording to {save_recording_path}")
     # Check if recording includes shiny sparkles
     print("Checking presence of shiny...")
     return contains_sound(shiny_template_file, game_recording)
