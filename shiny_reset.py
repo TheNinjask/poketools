@@ -11,7 +11,7 @@ from configs import general
 
 
 # Configuration variables
-DEFAULT_REC_DURATION = 4  # Default game sound recording duration [s], overridable via --recording-duration
+DEFAULT_REC_DURATION = 4  # Default game sound recording duration [s], overridable per scenario via REC_DURATION in its cfg_*.py file
 
 # Template audio file
 script_directory = os.path.dirname(os.path.abspath(__file__))  # current directory
@@ -64,8 +64,6 @@ if __name__ == "__main__":
            "the audio recording used for each matching attempt. Useful for checking timings and listening to " \
            "what the code hears."
     parser.add_argument("-n", "--dry-run", help=help, type=int, nargs="?", const=1, default=None, metavar="CYCLES")
-    help = f"Override the game sound recording duration [s] (default: {DEFAULT_REC_DURATION})."
-    parser.add_argument("-r", "--recording-duration", help=help, type=float, default=DEFAULT_REC_DURATION)
     args = parser.parse_args()
 
     # Load the scenario config from the selected console model's directory
@@ -73,6 +71,9 @@ if __name__ == "__main__":
     config_spec = importlib.util.spec_from_file_location(f"cfg_{args.scenario}", config_path)
     config = importlib.util.module_from_spec(config_spec)
     config_spec.loader.exec_module(config)
+
+    # Recording duration: use the scenario's own REC_DURATION if it defines one, otherwise the default
+    recording_duration = getattr(config, "REC_DURATION", DEFAULT_REC_DURATION)
 
     # Force no user switch for Shaymin scenario
     if args.scenario == "shaymin":
@@ -97,9 +98,9 @@ if __name__ == "__main__":
         # while using the controller to prevent it from disconnecting
         controller.busy_wait(config.BATTLE_LOADING_TIME)
         # Record game sound, and check if shiny sparkles are present
-        controller.busy_wait_background(args.recording_duration)
+        controller.busy_wait_background(recording_duration)
         dry_run_recording_path = f"{script_directory}/dry_run_recording_{cycle}.wav" if args.dry_run else None
-        is_shiny, correlation = audio.record_and_check_shiny(SHINY_AUDIO_FILE, args.recording_duration, dry_run_recording_path)
+        is_shiny, correlation = audio.record_and_check_shiny(SHINY_AUDIO_FILE, recording_duration, dry_run_recording_path)
         if is_shiny:
             print(f"Shiny found after {number_of_resets} resets.")
             # Shiny ! Put console in sleep mode

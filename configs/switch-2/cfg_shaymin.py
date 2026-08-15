@@ -2,6 +2,9 @@
 # UNTESTED / ADAPTED #
 ######################
 
+# Specific Configs
+REC_DURATION = 7 # Recording duration [s]
+
 # Timings
 GAME_LOADING_TIME = 1      # Game loading time [s]
 BATTLE_LOADING_TIME = 10.7  # Battle loading time [s]
