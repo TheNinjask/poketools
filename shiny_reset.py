@@ -114,6 +114,7 @@ if __name__ == "__main__":
             exit(0)
         elif args.dry_run and cycle >= args.dry_run:
             print(f"Dry run complete after {cycle} cycle(s). No shiny found.")
+            controller.macro(general.SLEEP_MODE)
             exit(0)
         else:
             # Not shiny, reset game
